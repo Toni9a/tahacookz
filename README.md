@@ -23,6 +23,7 @@ A Next.js web application that extracts and analyzes food reviews from [@diningw
 
 - **Framework**: Next.js 16 with App Router
 - **Language**: TypeScript
+- **Database**: Vercel Postgres (serverless PostgreSQL)
 - **Styling**: Tailwind CSS
 - **Charts**: Chart.js with react-chartjs-2
 - **Maps**: Leaflet with react-leaflet
@@ -35,6 +36,7 @@ A Next.js web application that extracts and analyzes food reviews from [@diningw
 
 - Node.js 18+ and npm
 - Modern web browser
+- Vercel account (for database and deployment)
 
 ### Installation
 
@@ -47,6 +49,26 @@ cd dining-taha-web
 ```bash
 npm install
 ```
+
+3. Set up Vercel Postgres
+   - Go to your [Vercel Dashboard](https://vercel.com/dashboard)
+   - Create a new Postgres database or use an existing one
+   - Copy the connection string
+
+4. Create `.env.local` file in the root directory
+```bash
+POSTGRES_URL="your-postgres-connection-string"
+POSTGRES_PRISMA_URL="your-prisma-connection-string"
+POSTGRES_URL_NON_POOLING="your-non-pooling-connection-string"
+POSTGRES_USER="your-user"
+POSTGRES_HOST="your-host"
+POSTGRES_PASSWORD="your-password"
+POSTGRES_DATABASE="your-database"
+```
+
+5. Initialize the database and import existing data
+   - After deploying to Vercel, visit: `https://your-app.vercel.app/api/init-db` (POST request)
+   - Or run locally: `npx tsx scripts/migrate-to-postgres.ts`
 
 3. Run the development server
 ```bash
