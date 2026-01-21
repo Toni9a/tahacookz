@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { initDatabase, savePosts, saveReviews } from '@/lib/database';
+import { savePosts, saveReviews } from '@/lib/database';
 import fs from 'fs';
 import path from 'path';
 
@@ -21,10 +21,10 @@ interface Review {
   date?: string;
 }
 
-export async function POST() {
+async function handleInit() {
   try {
-    // Initialize database
-    await initDatabase();
+    // Note: For Supabase, tables should be created via SQL Editor first
+    // This endpoint imports existing JSON data into the database
 
     let postsCount = 0;
     let reelsCount = 0;
@@ -73,24 +73,35 @@ export async function POST() {
       }
     }
 
-    return NextResponse.json({
+    return {
       success: true,
-      message: 'Database initialized and data imported successfully',
+      message: 'Data imported successfully',
       imported: {
         posts: postsCount,
         reels: reelsCount,
         reviews: reviewsCount,
         total: postsCount + reelsCount + reviewsCount,
       },
-    });
+    };
   } catch (error) {
     console.error('Database initialization error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to initialize database',
-      },
-      { status: 500 }
-    );
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to import data',
+    };
   }
+}
+
+export async function GET() {
+  const result = await handleInit();
+  return NextResponse.json(result, {
+    status: result.success ? 200 : 500
+  });
+}
+
+export async function POST() {
+  const result = await handleInit();
+  return NextResponse.json(result, {
+    status: result.success ? 200 : 500
+  });
 }
