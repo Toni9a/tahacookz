@@ -4,11 +4,17 @@ import fs from 'fs';
 import path from 'path';
 
 interface InstagramPost {
-  id: string;
+  id?: string;
   caption?: string;
-  timestamp: number | string;
+  title?: string;
+  timestamp?: number | string;
+  creation_timestamp?: number;
   likes?: number;
   mediaUrl?: string;
+  media?: Array<{
+    uri: string;
+    creation_timestamp: number;
+  }>;
 }
 
 interface Review {
@@ -34,14 +40,26 @@ async function handleInit() {
     const postsPath = path.join(process.cwd(), 'data', 'instagram-export', 'posts.json');
     if (fs.existsSync(postsPath)) {
       const postsData = JSON.parse(fs.readFileSync(postsPath, 'utf-8'));
-      const posts = postsData.map((post: InstagramPost) => ({
-        id: post.id,
-        caption: post.caption || '',
-        timestamp: new Date(post.timestamp).toISOString(),
-        likes: post.likes || 0,
-        mediaUrl: post.mediaUrl || null,
-        scrapedAt: new Date().toISOString(),
-      }));
+      const posts = postsData.map((post: InstagramPost) => {
+        // Handle Instagram export format
+        const timestamp = post.creation_timestamp || post.timestamp;
+        const timestampMs = typeof timestamp === 'number'
+          ? timestamp * 1000 // Convert Unix timestamp (seconds) to milliseconds
+          : timestamp || Date.now();
+
+        // Generate ID from first media URI or use existing ID
+        const id = post.id || (post.media && post.media[0]?.uri.split('/').pop()?.split('.')[0]) || `post_${Date.now()}`;
+        const mediaUrl = post.mediaUrl || (post.media && post.media[0]?.uri) || null;
+
+        return {
+          id,
+          caption: post.title || post.caption || '',
+          timestamp: new Date(timestampMs).toISOString(),
+          likes: post.likes || 0,
+          mediaUrl,
+          scrapedAt: new Date().toISOString(),
+        };
+      });
       await savePosts(posts);
       postsCount = posts.length;
     }
@@ -50,14 +68,26 @@ async function handleInit() {
     const reelsPath = path.join(process.cwd(), 'data', 'instagram-export', 'reels.json');
     if (fs.existsSync(reelsPath)) {
       const reelsData = JSON.parse(fs.readFileSync(reelsPath, 'utf-8'));
-      const reels = reelsData.map((reel: InstagramPost) => ({
-        id: reel.id,
-        caption: reel.caption || '',
-        timestamp: new Date(reel.timestamp).toISOString(),
-        likes: reel.likes || 0,
-        mediaUrl: reel.mediaUrl || null,
-        scrapedAt: new Date().toISOString(),
-      }));
+      const reels = reelsData.map((reel: InstagramPost) => {
+        // Handle Instagram export format
+        const timestamp = reel.creation_timestamp || reel.timestamp;
+        const timestampMs = typeof timestamp === 'number'
+          ? timestamp * 1000 // Convert Unix timestamp (seconds) to milliseconds
+          : timestamp || Date.now();
+
+        // Generate ID from first media URI or use existing ID
+        const id = reel.id || (reel.media && reel.media[0]?.uri.split('/').pop()?.split('.')[0]) || `reel_${Date.now()}`;
+        const mediaUrl = reel.mediaUrl || (reel.media && reel.media[0]?.uri) || null;
+
+        return {
+          id,
+          caption: reel.title || reel.caption || '',
+          timestamp: new Date(timestampMs).toISOString(),
+          likes: reel.likes || 0,
+          mediaUrl,
+          scrapedAt: new Date().toISOString(),
+        };
+      });
       await savePosts(reels);
       reelsCount = reels.length;
     }
