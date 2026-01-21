@@ -1,4 +1,4 @@
-import { sql } from '@vercel/postgres';
+import { createClient } from '@supabase/supabase-js';
 
 export interface DBPost {
   id: string;
@@ -20,54 +20,60 @@ export interface Review {
   date?: string;
 }
 
+// Initialize Supabase client
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
 // Initialize database tables
 export async function initDatabase() {
   try {
     // Create posts table
-    await sql`
-      CREATE TABLE IF NOT EXISTS posts (
-        id TEXT PRIMARY KEY,
-        caption TEXT,
-        timestamp TIMESTAMP NOT NULL,
-        likes INTEGER DEFAULT 0,
-        media_url TEXT,
-        scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
+    const { error: postsError } = await supabase.rpc('exec_sql', {
+      sql: `
+        CREATE TABLE IF NOT EXISTS posts (
+          id TEXT PRIMARY KEY,
+          caption TEXT,
+          timestamp TIMESTAMP NOT NULL,
+          likes INTEGER DEFAULT 0,
+          media_url TEXT,
+          scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_posts_timestamp ON posts(timestamp DESC);
+      `
+    });
 
-    await sql`
-      CREATE INDEX IF NOT EXISTS idx_posts_timestamp ON posts(timestamp DESC)
-    `;
+    if (postsError) {
+      console.warn('Posts table might already exist:', postsError.message);
+    }
 
     // Create reviews table
-    await sql`
-      CREATE TABLE IF NOT EXISTS reviews (
-        id SERIAL PRIMARY KEY,
-        restaurant_name TEXT NOT NULL,
-        rating DECIMAL(2,1),
-        review_text TEXT,
-        location TEXT,
-        latitude DECIMAL(10,8),
-        longitude DECIMAL(11,8),
-        date DATE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
+    const { error: reviewsError } = await supabase.rpc('exec_sql', {
+      sql: `
+        CREATE TABLE IF NOT EXISTS reviews (
+          id SERIAL PRIMARY KEY,
+          restaurant_name TEXT NOT NULL,
+          rating DECIMAL(2,1),
+          review_text TEXT,
+          location TEXT,
+          latitude DECIMAL(10,8),
+          longitude DECIMAL(11,8),
+          date DATE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_reviews_restaurant ON reviews(restaurant_name);
+        CREATE INDEX IF NOT EXISTS idx_reviews_rating ON reviews(rating);
+        CREATE INDEX IF NOT EXISTS idx_reviews_location ON reviews(latitude, longitude);
+      `
+    });
 
-    await sql`
-      CREATE INDEX IF NOT EXISTS idx_reviews_restaurant ON reviews(restaurant_name)
-    `;
-
-    await sql`
-      CREATE INDEX IF NOT EXISTS idx_reviews_rating ON reviews(rating)
-    `;
-
-    await sql`
-      CREATE INDEX IF NOT EXISTS idx_reviews_location ON reviews(latitude, longitude)
-    `;
+    if (reviewsError) {
+      console.warn('Reviews table might already exist:', reviewsError.message);
+    }
 
     console.log('Database initialized successfully');
   } catch (error) {
@@ -79,25 +85,21 @@ export async function initDatabase() {
 // Post functions
 export async function savePost(post: DBPost) {
   try {
-    await sql`
-      INSERT INTO posts (id, caption, timestamp, likes, media_url, scraped_at)
-      VALUES (
-        ${post.id},
-        ${post.caption},
-        ${post.timestamp},
-        ${post.likes || 0},
-        ${post.mediaUrl || null},
-        ${post.scrapedAt}
-      )
-      ON CONFLICT (id)
-      DO UPDATE SET
-        caption = EXCLUDED.caption,
-        timestamp = EXCLUDED.timestamp,
-        likes = EXCLUDED.likes,
-        media_url = EXCLUDED.media_url,
-        scraped_at = EXCLUDED.scraped_at,
-        updated_at = CURRENT_TIMESTAMP
-    `;
+    const { error } = await supabase
+      .from('posts')
+      .upsert({
+        id: post.id,
+        caption: post.caption,
+        timestamp: post.timestamp,
+        likes: post.likes || 0,
+        media_url: post.mediaUrl || null,
+        scraped_at: post.scrapedAt,
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'id'
+      });
+
+    if (error) throw error;
   } catch (error) {
     console.error('Error saving post:', error);
     throw error;
@@ -106,9 +108,22 @@ export async function savePost(post: DBPost) {
 
 export async function savePosts(posts: DBPost[]) {
   try {
-    for (const post of posts) {
-      await savePost(post);
-    }
+    const { error } = await supabase
+      .from('posts')
+      .upsert(
+        posts.map(post => ({
+          id: post.id,
+          caption: post.caption,
+          timestamp: post.timestamp,
+          likes: post.likes || 0,
+          media_url: post.mediaUrl || null,
+          scraped_at: post.scrapedAt,
+          updated_at: new Date().toISOString(),
+        })),
+        { onConflict: 'id' }
+      );
+
+    if (error) throw error;
   } catch (error) {
     console.error('Error saving posts:', error);
     throw error;
@@ -117,19 +132,21 @@ export async function savePosts(posts: DBPost[]) {
 
 export async function getAllPosts(): Promise<DBPost[]> {
   try {
-    const result = await sql`
-      SELECT
-        id,
-        caption,
-        timestamp::text,
-        likes,
-        media_url as "mediaUrl",
-        scraped_at::text as "scrapedAt"
-      FROM posts
-      ORDER BY timestamp DESC
-    `;
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*')
+      .order('timestamp', { ascending: false });
 
-    return result.rows as DBPost[];
+    if (error) throw error;
+
+    return (data || []).map(row => ({
+      id: row.id,
+      caption: row.caption,
+      timestamp: row.timestamp,
+      likes: row.likes,
+      mediaUrl: row.media_url,
+      scrapedAt: row.scraped_at,
+    }));
   } catch (error) {
     console.error('Error getting posts:', error);
     return [];
@@ -138,8 +155,12 @@ export async function getAllPosts(): Promise<DBPost[]> {
 
 export async function getPostCount(): Promise<number> {
   try {
-    const result = await sql`SELECT COUNT(*) as count FROM posts`;
-    return Number(result.rows[0]?.count || 0);
+    const { count, error } = await supabase
+      .from('posts')
+      .select('*', { count: 'exact', head: true });
+
+    if (error) throw error;
+    return count || 0;
   } catch (error) {
     console.error('Error getting post count:', error);
     return 0;
@@ -148,13 +169,15 @@ export async function getPostCount(): Promise<number> {
 
 export async function getLatestPostTimestamp(): Promise<string | null> {
   try {
-    const result = await sql`
-      SELECT timestamp::text
-      FROM posts
-      ORDER BY timestamp DESC
-      LIMIT 1
-    `;
-    return result.rows[0]?.timestamp || null;
+    const { data, error } = await supabase
+      .from('posts')
+      .select('timestamp')
+      .order('timestamp', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error) throw error;
+    return data?.timestamp || null;
   } catch (error) {
     console.error('Error getting latest post timestamp:', error);
     return null;
@@ -163,7 +186,8 @@ export async function getLatestPostTimestamp(): Promise<string | null> {
 
 export async function clearAllPosts() {
   try {
-    await sql`DELETE FROM posts`;
+    const { error } = await supabase.from('posts').delete().neq('id', '');
+    if (error) throw error;
   } catch (error) {
     console.error('Error clearing posts:', error);
     throw error;
@@ -173,26 +197,19 @@ export async function clearAllPosts() {
 // Review functions
 export async function saveReview(review: Review) {
   try {
-    await sql`
-      INSERT INTO reviews (
-        restaurant_name,
-        rating,
-        review_text,
-        location,
-        latitude,
-        longitude,
-        date
-      )
-      VALUES (
-        ${review.restaurant_name},
-        ${review.rating || null},
-        ${review.review_text || null},
-        ${review.location || null},
-        ${review.latitude || null},
-        ${review.longitude || null},
-        ${review.date || null}
-      )
-    `;
+    const { error } = await supabase
+      .from('reviews')
+      .insert({
+        restaurant_name: review.restaurant_name,
+        rating: review.rating || null,
+        review_text: review.review_text || null,
+        location: review.location || null,
+        latitude: review.latitude || null,
+        longitude: review.longitude || null,
+        date: review.date || null,
+      });
+
+    if (error) throw error;
   } catch (error) {
     console.error('Error saving review:', error);
     throw error;
@@ -201,9 +218,21 @@ export async function saveReview(review: Review) {
 
 export async function saveReviews(reviews: Review[]) {
   try {
-    for (const review of reviews) {
-      await saveReview(review);
-    }
+    const { error } = await supabase
+      .from('reviews')
+      .insert(
+        reviews.map(review => ({
+          restaurant_name: review.restaurant_name,
+          rating: review.rating || null,
+          review_text: review.review_text || null,
+          location: review.location || null,
+          latitude: review.latitude || null,
+          longitude: review.longitude || null,
+          date: review.date || null,
+        }))
+      );
+
+    if (error) throw error;
   } catch (error) {
     console.error('Error saving reviews:', error);
     throw error;
@@ -212,21 +241,23 @@ export async function saveReviews(reviews: Review[]) {
 
 export async function getAllReviews(): Promise<Review[]> {
   try {
-    const result = await sql`
-      SELECT
-        id,
-        restaurant_name,
-        rating,
-        review_text,
-        location,
-        latitude,
-        longitude,
-        date::text
-      FROM reviews
-      ORDER BY date DESC
-    `;
+    const { data, error } = await supabase
+      .from('reviews')
+      .select('*')
+      .order('date', { ascending: false });
 
-    return result.rows as Review[];
+    if (error) throw error;
+
+    return (data || []).map(row => ({
+      id: row.id,
+      restaurant_name: row.restaurant_name,
+      rating: row.rating,
+      review_text: row.review_text,
+      location: row.location,
+      latitude: row.latitude,
+      longitude: row.longitude,
+      date: row.date,
+    }));
   } catch (error) {
     console.error('Error getting reviews:', error);
     return [];
@@ -235,22 +266,24 @@ export async function getAllReviews(): Promise<Review[]> {
 
 export async function getReviewsByRestaurant(restaurantName: string): Promise<Review[]> {
   try {
-    const result = await sql`
-      SELECT
-        id,
-        restaurant_name,
-        rating,
-        review_text,
-        location,
-        latitude,
-        longitude,
-        date::text
-      FROM reviews
-      WHERE restaurant_name ILIKE ${`%${restaurantName}%`}
-      ORDER BY date DESC
-    `;
+    const { data, error } = await supabase
+      .from('reviews')
+      .select('*')
+      .ilike('restaurant_name', `%${restaurantName}%`)
+      .order('date', { ascending: false });
 
-    return result.rows as Review[];
+    if (error) throw error;
+
+    return (data || []).map(row => ({
+      id: row.id,
+      restaurant_name: row.restaurant_name,
+      rating: row.rating,
+      review_text: row.review_text,
+      location: row.location,
+      latitude: row.latitude,
+      longitude: row.longitude,
+      date: row.date,
+    }));
   } catch (error) {
     console.error('Error getting reviews by restaurant:', error);
     return [];
