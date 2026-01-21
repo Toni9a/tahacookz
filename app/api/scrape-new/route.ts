@@ -15,9 +15,9 @@ export async function POST(request: NextRequest) {
 
     // Check if we already have data cached
     if (!forceRefresh) {
-      const cachedCount = getPostCount();
+      const cachedCount = await getPostCount();
       if (cachedCount > 0) {
-        const cachedPosts = getAllPosts();
+        const cachedPosts = await getAllPosts();
         return NextResponse.json({
           posts: cachedPosts,
           cached: true,
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     console.log(`Scraping Instagram posts for @${username}...`);
 
     // Get existing posts to avoid re-scraping
-    const existingPosts = getAllPosts();
+    const existingPosts = await getAllPosts();
     const existingPostIds = new Set(existingPosts.map(p => p.id));
     console.log(`Database has ${existingPostIds.size} existing posts`);
 
@@ -53,13 +53,13 @@ export async function POST(request: NextRequest) {
 
     // Save to database
     console.log(`Saving ${posts.length} new posts to database...`);
-    savePosts(posts);
+    await savePosts(posts);
 
     // Get updated total count
-    const totalCount = getPostCount();
+    const totalCount = await getPostCount();
 
     return NextResponse.json({
-      posts: getAllPosts(), // Return all posts including old ones
+      posts: await getAllPosts(), // Return all posts including old ones
       cached: false,
       count: totalCount,
       message: `Successfully scraped ${posts.length} new posts from @${username}. Total: ${totalCount} posts.`,
@@ -79,8 +79,8 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   try {
-    const posts = getAllPosts();
-    const count = getPostCount();
+    const posts = await getAllPosts();
+    const count = await getPostCount();
 
     return NextResponse.json({
       posts,

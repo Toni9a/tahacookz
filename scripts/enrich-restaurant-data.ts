@@ -80,7 +80,7 @@ async function scrapeInstagramProfile(handle: string): Promise<RestaurantInfo | 
 async function enrichRestaurantData() {
   console.log('Starting restaurant data enrichment...');
 
-  const posts = getAllPosts();
+  const posts = await getAllPosts();
   const reviews = posts.map(p => parseReview(p.caption, p.timestamp)).filter(r => r !== null);
 
   // Get unique restaurant handles
