@@ -67,7 +67,9 @@ async function handleInit() {
     // Import Instagram reels
     const reelsPath = path.join(process.cwd(), 'data', 'instagram-export', 'reels.json');
     if (fs.existsSync(reelsPath)) {
-      const reelsData = JSON.parse(fs.readFileSync(reelsPath, 'utf-8'));
+      const reelsFile = JSON.parse(fs.readFileSync(reelsPath, 'utf-8'));
+      // Handle Instagram export format - reels are nested under ig_reels_media
+      const reelsData = Array.isArray(reelsFile) ? reelsFile : (reelsFile.ig_reels_media || []);
       const reels = reelsData.map((reel: InstagramPost) => {
         // Handle Instagram export format
         const timestamp = reel.creation_timestamp || reel.timestamp;
